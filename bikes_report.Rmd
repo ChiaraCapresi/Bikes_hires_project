@@ -1,0 +1,396 @@
+---
+title: "Bikes report"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Bikes hires
+
+## 1. Documentation:
+
+In this project I am going to analyse a dataset collecting data of bikes hires.
+
+## 1.1 Domain knowledge
+
+##### Overview of the dataset and ethics considerations:
+
+Nowadays, people are more and more involved in promoting ecological behaviour. For this reason, bike rental industry is increasing a lot. 'NYC City Bikes' is a company setted in New York, that offers this kind of service. At first I will explain how this company works. Each bike has an identification number, which in the dataset is indicated by the column ('bike_id') and which is unique for each of them. 
+For every hire, the company collects a few data about the riders. It is asked their year of birth and their gender and they are registered either as 'Customers' or as 'Subscribers' depending on their membership status. In the dataset, we can also find very detailed informations about each specific hire, like the start and stop times and the start and stop positions (i.e. station, latitude and longitude).
+
+From an ethic point of view it could be questionable if it is or not legitimate to register all these informations about customers/subsribers. In fact, in addition to the personal details, like gender, age or membership status, that they themselves give to the company, it is also registered the exact itinerary that they are going to follow and the precise time at which they cover it.
+
+I think that about that, there are two considerations that must be done. First of all, all the customers are aware of this fact, so in some way if they decide to hire a bike from this specific company, this means that they implicitly accept to share these informations. Secondly, even if the company must have in some way a list of the names of each renter, also for being able to distinguish between customers and subscribers, in the dataset does not appear any reference to the name or specific identification number of the riders. So, even if these data are public, they seem to be just useful to the company for making statistics on its business and any kind of identifier of the riders (like the list of names and personal identifiers) is kept private, so the ethics matter is overall reduced to the minimum.
+
+
+
+## 1.2 Business requirements 
+
+In this project I am going to answer to the following questions:
+
+  - What is the pattern of bike hires over time?
+  - Do bike hire patterns differ between bike rider demographics? 
+  - What is the geographical spread of the start points of bike hires?
+  
+  I will explain later, step by step, why I think that these informations can be useful for the benefit of the business of the company.
+
+
+## 1.3 Business processes and data flow
+
+```{r}
+library(magick)
+
+img <- magick::image_read('bike_diagram.png')
+plot(img) 
+```
+
+In my opinion we can explain the hiring process as follow. First of all we have two distinct macro-categories involved in it, which are respectively the users (so the riders) and the company itself. About these two categories we are given a few informations. These informations are age, gender and type for the riders, and bikes id and starting and stopping points' geo coordinates for the company. 
+
+The users information come to the company once a trip is beginning. Only at this stage we need to be aware of the the informations about the specific trip. These collect the 'bike id', starting and stopping stations and starting and stopping times.
+
+## 1.4 Data visualisation as a tool for decision-making 
+
+I guess that keeping active the stations would cost to the company, both in terms of electrical energy and of number of stuff members involved (if there are any).
+
+For this reason I think it is quite important for the company's managers to know which are the period of the year or even of the day when the requests are higher and which instead are periods when the number of bike hires is extremely limited. In the first case they could consider if there is necessity to assume more stuff, in the second, they could decide to stay closed, or take their station inactive in order to save resources.
+
+Having a better understanding of the ratio between customers and subscribers, can be useful, because in this way the can verify if their membership policy is satisfiable or if instead it can be improved in some way. Furthermore, having an idea of which are their clients can help the company to find out new strategies for increasing the requests from people that currently use their service less. This make useful also having a check of the gender and age of clients as well. 
+
+
+Finally, the distribution of the starting station in the territory, can be very useful too. Knowing which are the areas where people are more likely to start, allows the company to consider the most useful verifications to do on their stations in that areas. For example, they could check if these stations have enough number of bikes (and stuff, if there is any necessity) in order to meet the demands. Furthermore, they could also consider the hypothesis of adding more stations in that areas if they think there would be needed.
+
+
+
+## 1.5 Data tipes 
+
+Now, I am going to have a look of the data type present in the data frame. To this end, I will use the 'glimpse' function from the 'Tidyverse' package.
+
+```{r}
+library(tidyverse)
+library(tsibbledata)
+library(lubridate)
+library(tsibble)
+library(leaflet)
+library(infer)
+
+
+nyc_bikes_df <- nyc_bikes
+```
+
+```{r}
+glimpse(nyc_bikes_df)
+```
+As we can see, in this data set there are 12 columns and 4268 rows. Each row represent an observation and each column represent a characteristic/variable that is observed.
+
+Let's have look of the data types involved here.
+
+- type **factor**: the columns 'bike_id', 'start_station', 'end_station', 'type' and 'gender' are columns of type 'factor'.
+  -- A variable of type *factor* is a categorical variable. It can store both numbers ('integer') and words ('character'), but the values are treated like labels of specific categories.
+
+- type **POSIXt**: the columns 'start_time' and 'stop_time' are of type 'POSIXt'.
+  -- A variable of type *POSIXt* store a data-time value. A typical element that can be stored in this variable as the form *y-m-d h:m:s*, where 'y-m-d' is a date (year, month, day in order) and 'h:m:s' is a time (hours, minutes and seconds in sequence).
+
+- type **double**: the columns 'start_lat', 'start_long', 'end_lat', 'end_long' and 'birth_year' are of type 'double'.
+  -- A variable of type *double* store a numeric value (any value on the real number line).
+
+
+
+## 1.6 Data quality and data bias 
+
+The data appears very precise and detailed. The only concern is about the 'birth_year' from which it seems there are people in the dataset aged more than 100 ears old. However this will be a stuff I will deal with in the 'Cleaning data' section. 
+
+
+# 2. Data cleaning
+
+Now I am going to do a few operations of cleaning and wrangling of the data in order to prepare the dataset for visualisation. 
+
+
+## Preparing data for visualisation 
+
+In the first question it is required to analyse the patterns of bike hires over time (e.g. during an year or during a single day).
+
+To deal with this question I did the operations that follow.
+
+- I created new columns each one respectively containing the *starting day*, *starting month*, *starting year*, *starting hour*. Furthermore, I created also a column *week_day*, that specify which day of the week correspond to each 'starting day'.
+
+
+```{r}
+nyc_bikes_df <- nyc_bikes_df %>% 
+  mutate(
+    start_day = day(start_time),
+    week_day = wday(start_time, label = TRUE, abbr = TRUE),
+    start_month = month(start_time, label = TRUE, abbr = TRUE),
+    start_year = year(start_time),
+    start_hour = hour(start_time),
+    .after = start_time
+  )
+nyc_bikes_df
+```
+
+
+- I verified that all the data in the dataset refers to a single year, which is 2018!
+  -- (I verified this simply filtering the rows of the dataset for years different from 2018 and obtaining an empty dataset.)
+
+```{r}
+nyc_bikes_df %>% 
+  filter(start_year != 2018)
+```
+
+
+- I created a new column that divide each day in two categories depending on if it is or not a weekend day.
+
+
+
+```{r}
+nyc_bikes_df <- nyc_bikes_df %>% 
+  mutate(
+    weekend_sel = if_else(
+      week_day %in% c("sab", "dom"),
+                      "weekend",
+      "working day"
+      
+    ) )
+      
+```
+
+
+The second question ask to analyse the patterns of bike hires depending on the riders demographics, for this reason, I created an *age* column, calculating the age of the riders from their year of birth.
+
+
+```{r}
+nyc_bikes_df <- nyc_bikes_df %>% 
+  mutate(
+    age = year(today()) - birth_year
+  )
+```
+
+
+Arranging the age column in both the directions I realised that the minimum age that appear in the dataset is of 24 years old, and the maximum is 136 (I already mentioned this fact, after having had the look at the 'birth_year' column).
+
+
+- Since it seems unlikely that people aged 136 years old can rent a bike, I decided to only assume acceptable in this dataset only age less than 80 years old.
+
+```{r}
+nyc_bikes_df <- nyc_bikes_df %>% 
+  filter(age < 80 & age > 16)
+```
+
+- Furthermore, it would be convenient for further analysis to divide ages into categories. The minimum age is 24 years old. I am going to group the age column into three ranges: young (24 - 39), senior (40 - 60) and old (61 - 79).
+
+```{r}
+nyc_bikes_df <- nyc_bikes_df %>% 
+  mutate(
+    age_ranges = case_when(
+      age < 40 ~ "young",
+      age < 61 ~ "senior",
+      age < 80 ~ "old"
+    ) )
+      
+```
+
+
+
+
+
+# 3. Data visualisation
+
+Now I am going to analyse singularly each of the business requirements that I listed at the beginning, providing for each of them proper visualisations and explanations.
+
+
+## What is the pattern of bike hires over time?
+
+## 3.1 Process and design
+
+Here I am going to analyse how the number of hiring requests are distributed in general, during the year and even during single days. In particular, I will compare a typical trend during a weekend day and a working day, both in winter (February) and in Summer (August).
+
+
+
+## 3.2 Visualisations 
+
+
+Let's have a look of how the hires are distributed during this year.
+
+
+```{r}
+nyc_bikes_df %>% 
+  ggplot() +
+  aes(x = start_month) +
+  geom_bar(position = "dodge", fill = "purple")
+```
+From this chart it seems that the hires are significantly higher from late Spring to Summer time.
+
+This could depend on the fact that in this period there are more tourists in town or, even more likely, it could be a consequence of the better weather forecasting registered during the summer months.
+
+
+In the following, I am going to make a comparison between two different periods of the week (weekend or not) in two different periods of the year (winter/summer).
+
+
+```{r}
+nyc_bikes_df %>% 
+  filter(start_month %in% c("ago", "feb")) %>% 
+  ggplot() +
+  aes(x = start_hour) +
+  geom_bar(position = "dodge") +
+  facet_wrap(start_month~weekend_sel)
+```
+
+From this chart we can make the following considerations:
+
+- The number of hirings in Summer is significantly more consistent than in Winter, but this was exactly what we expected from the previous chart.
+
+- In February the company's activity during the weekend seems to be very limited, while in Summer it seems to have a more regular trend in that period of the week.
+
+- On working days, a part from a huge difference in terms of number of requests between Summer and Winter (which was expect), the trend seems semilar. In both the cases there are two picks, respectively one in the middle of the morning (8/9 am) and the other  in the middle of the afternoon (6/7 pm).
+
+
+### Business informations 
+
+I can guess that maintaining the stations active must have a cost for the company, both in terms of electrical energy and maybe in terms of stuff involved (if there is any). For this reason, having an idea of which are the most intense periods in terms of hirings requests during the year or even during a single day, can be useful for the company managers to review the company's opening times and the number of people of the stuff involved, depending on the requests' turnout.
+
+From the previous visualisation we can definitely make the following assumptions.
+
+- In conclusion we can say that maybe, the Company should be definitely closed every day from midnight to 5am, considering the opportunity of opening at 8am and closing at 9pm during the week, since out of these range the number of hires is very low. 
+
+- In Summer, during the weekend they should close a bit later because the requests in late evening are comparable with those of the rest of the day. On the other hand, in Winter, maybe it could be reasonable to keep close during weekends, since the requests are very limited.
+
+- Furthermore, it seems reasonable to close the company for lunch time in Winter, because there are very few requests at that time, while in Summer it should be advisable to have no breaks, because the trend in the middle of the day if quite irregular from a day to another. 
+
+
+## Do bike hire patterns differ between bike rider demographics?
+
+## 3.1 Process and design
+
+In this section I am going to analyse if the bike hire pattern differ depending on specific informations about the bike rider demographics. In particular, I will analyse the differences in relationship with their membership status, their gender and their age. Knowing who are the people that more likely use its service on who less, can help the company to verify if its membership policy is satisfiable or if it could be improved in some way and to find solutions for encourage to use its service also people that currently are not so keen to use it.
+
+
+
+## 3.2 Visualisations 
+
+### Type
+
+Analysing the amount of hires depending on the type of membership could be useful for the company for defining possible new membership policies.
+
+```{r}
+nyc_bikes_df %>%
+  #filter(week_day %in% c("mer", "sab")) %>% 
+  ggplot() +
+  aes(x = start_hour, fill = type) +
+  geom_bar(position = "dodge", colour = "white") +
+  facet_wrap(~weekend_sel)
+```
+
+- First of all, It appears clear that the very majority of hires is done by Subscribers.
+
+This can imply that people are generally satisfied about the membership policy, so maybe it wouldn't be necessary to think about any kind of change in it.
+
+This fact, and the fact that the number of simple customers is so low, could suggest that the number of occasional customers, like tourists for example, is quite small. We can assume that most of the people that hire bikes from this company are local or live in the nearby.
+
+- Having a look of what happens on single working days the subscriber's hirings seems to have tow picks one in the early morning and the other in the afternoon, while in the weekend it seems that the trend is more regular (similarly to what we have seen in the previous point). The trend of simple customer seems to be regular.
+
+This fact could depend on the fact that local people are committed at work during the week in the interval from late morning to early afternoon, and they are more free during weekends.
+
+
+### Gender
+
+Having an idea of how the hires are distributed depending on the gender of the riders can be useful, for example, for realising if there is or not a disparity in terms of number of requests between different genders.
+
+Let's have a look of what happens during the week.
+
+
+```{r}
+nyc_bikes_df %>% 
+  ggplot() +
+  aes(x = week_day, fill = gender) +
+  geom_bar(position = "dodge", colour = "white")
+```
+In general it seems that there is a clear majority of male among the riders.
+
+
+### Age
+
+As well this analysis can give to the company an idea of which age's range of people are less likely to rent a bike and make decisions consequently.
+
+Let's remember that I created a new column dividing the possible ages into three ranges: young (24 - 39), senior (40 - 60) and old (61 - 79).
+
+ 
+```{r}
+nyc_bikes_df %>% 
+   ggplot() +
+  aes(x = start_month, fill = age_ranges) +
+  geom_bar(position = "dodge", colour = "white")
+```
+
+Not surprising the number of hires requested by people with more than 60 years old are quite smaller with respect to the other two. The other two categories looks quite similar.
+
+
+
+### Business informations 
+
+I think that these information can be important for the company.
+
+- Looking at the riders' 'type', we can notice, on the one hand the managers can be confident that their membership policy, seems to be well accepted (otherwise there wouldn't be so many subscriptions). On the other hand, guessing that the customer are mostly occasional visitors, they can think about how their stations are distributed in particular points of the city, like the most tourist sites, in order to try to improve the number of requests from these category of people.
+
+
+- According to this we could say that maybe the company could try to give some discount to the genders which are not so keen on renting bikes.
+
+- Again, a good option for the company could be that of offering discounts to people older than 60.
+
+
+
+## What is the geographical spread of the start points of bike hires?
+
+## 3.1 Process and design
+
+In the following we will map the position of the starting points of the trips, considering only a sample of the original dataset. The idea is to see if there are areas where the starting points are more concentrated, in order to verify if the stations in those areas are enough fournished to satisfy all the requests.
+
+
+## 3.2 Visualisations 
+
+
+```{r}
+sample_hires <- nyc_bikes_df %>%
+  as_tibble() %>% 
+  rep_sample_n(size = 1000, reps = 1)
+```
+
+
+
+```{r}
+starting_points <- sample_hires %>% 
+  leaflet() %>%
+  addTiles() %>%
+   addMarkers(lng = ~start_long, lat = ~start_lat)
+
+starting_points
+```
+
+Looking at the map, it seems that most of the preferred starting points are concentrated close to the river. In these places maybe the company should run a check of the stations present on that area.
+
+
+### Business informations 
+
+This visualisation of the starting points is useful for the company for having an idea of which are the areas where people are generally more likely to start and which not. This could suggest to the company how to distribute their bikes in each station and maybe whether in certain areas it would be useful to set more stations.
+
+
+# Conclusions
+
+In conclusion, from our analysis follows that:
+
+1. The company can re-evaluate its opening time/station activity time depending the period of the year and the time of the day.
+
+2. It seems that customer are quite satisfied about the membership policy, maybe that company could consider to check more deeply if there are enough stations near the most tourist points of the city, in order to increase a bit the number of hires from simple customers.
+
+3. 'NYC Bikes' could consider the idea of offering discount to specific classes of people like women and aged over 60, since it seems that these are categories that don't use this service so much currently.
+
+4. Have a deeper check of station in areas where the requests seem to be higher both in terms of their number and in terms of availability of bikes to be rented 
+
+
+
+
+
+
+
+
+
